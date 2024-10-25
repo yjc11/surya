@@ -1,3 +1,7 @@
+import contextlib
+import multiprocessing
+import threading
+from queue import Queue
 from typing import List, Tuple, Generator
 
 import torch
@@ -7,12 +11,14 @@ from PIL import Image
 from surya.model.detection.model import EfficientViTForSemanticSegmentation
 from surya.postprocessing.heatmap import get_and_clean_boxes
 from surya.postprocessing.affinity import get_vertical_lines
-from surya.input.processing import prepare_image_detection, split_image, get_total_splits, convert_if_not_rgb
+from surya.input.processing import prepare_image_detection, split_image, get_total_splits
 from surya.schema import TextDetectionResult
 from surya.settings import settings
 from tqdm import tqdm
 from concurrent.futures import ProcessPoolExecutor
 import torch.nn.functional as F
+
+from surya.util.parallel import FakeParallel
 
 
 def get_batch_size():
@@ -122,6 +128,7 @@ def parallel_get_lines(preds, orig_sizes):
     return result
 
 
+
 def batch_text_detection(images: List, model, processor, batch_size=None) -> List[TextDetectionResult]:
     detection_generator = batch_detection(images, model, processor, batch_size=batch_size)
 
@@ -140,5 +147,3 @@ def batch_text_detection(images: List, model, processor, batch_size=None) -> Lis
                 results.append(parallel_get_lines(pred, orig_size))
 
     return results
-
-
