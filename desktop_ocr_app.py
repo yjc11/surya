@@ -12,9 +12,11 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QIcon, QImage, QPixmap
 from PyQt5.QtWidgets import QHBoxLayout  # 新增：用于水平布局
 from PyQt5.QtWidgets import QLabel  # 新增：用于添加标签
-from PyQt5.QtWidgets import (
+from PyQt5.QtWidgets import (  # 新增：用于添加勾选框和分组
     QApplication,
+    QCheckBox,
     QFrame,
+    QGroupBox,
     QMainWindow,
     QPushButton,
     QScrollArea,
@@ -24,6 +26,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from surya.apis.baidu_translate import baidu_translate
 from surya.detection import batch_text_detection
 from surya.input.langs import replace_lang_with_code
 from surya.input.pdflines import get_page_text_lines, get_table_blocks
@@ -137,90 +140,187 @@ def polish_text(text: str) -> str:
         return "Error: Unable to polish text"
 
 
+class OCRProcessor:
+    def __init__(self):
+        self.det_model, self.det_processor = load_det_cached()
+        self.rec_model, self.rec_processor = load_rec_cached()
+
+    def perform_ocr(self, image: Image.Image, langs: List[str]) -> OCRResult:
+        # Adjust image size
+        image = adjust_image_size(image)
+        # Perform OCR
+        _, ocr_result = ocr(
+            image,
+            image,
+            langs,
+            self.det_model,
+            self.det_processor,
+            self.rec_model,
+            self.rec_processor,
+        )
+        return ocr_result
+
+
+class Translator:
+    def __init__(self):
+        pass
+
+    def translate_text(self, text: str, from_lang: str = "en", to_lang: str = "zh") -> str:
+        try:
+            text = text.replace("\n", " ")
+            return baidu_translate(text, from_lang=from_lang, to_lang=to_lang)
+        except Exception as e:
+            print(f"Translation error: {e}")
+            return "Error: Unable to translate text"
+
+
 class DesktopOCRApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.initUI()
-
-        # Load OCR models
-        self.det_model, self.det_processor = load_det_cached()
-        self.rec_model, self.rec_processor = load_rec_cached()
+        self.ocr_processor = OCRProcessor()
+        self.translator = Translator()
+        self.image = None
 
     def initUI(self):
-        self.setWindowTitle('OCR & Text Polish App')
-        self.setGeometry(100, 100, 1200, 800)  # 增加窗口大小
+        self.setWindowTitle('OCR & Translate App')
+        self.setGeometry(100, 100, 800, 600)
         self.setWindowIcon(QIcon('path_to_your_icon.png'))
 
+        # 创建中央部件和主布局
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-
-        main_layout = QHBoxLayout()
+        main_layout = QVBoxLayout(central_widget)
 
         # OCR 部分
+        ocr_frame = self.create_ocr_frame()
+        main_layout.addWidget(ocr_frame)
+
+        # 设置全局样式
+        self.set_global_style()
+
+    def create_ocr_frame(self):
+        # 创建OCR框架
         ocr_frame = QFrame()
         ocr_frame.setFrameShape(QFrame.StyledPanel)
         ocr_layout = QVBoxLayout(ocr_frame)
 
+        # 添加OCR标题
         ocr_title = QLabel("OCR")
-        ocr_title.setStyleSheet("font-size: 18px; font-weight: bold;")
+        ocr_title.setStyleSheet("font-size: 16px; font-weight: bold;")
         ocr_layout.addWidget(ocr_title)
 
-        self.paste_button = QPushButton('Paste Image')
-        self.paste_button.clicked.connect(self.paste_image)
-        ocr_layout.addWidget(self.paste_button)
+        # 添加按钮布局
+        button_layout = self.create_button_layout()
+        ocr_layout.addLayout(button_layout)
 
-        self.ocr_button = QPushButton('Perform OCR')
-        self.ocr_button.clicked.connect(self.perform_ocr)
-        ocr_layout.addWidget(self.ocr_button)
+        # 添加翻译复选框
+        self.translate_checkbox = self.create_translate_checkbox()
+        ocr_layout.addWidget(self.translate_checkbox)
 
         # 添加图片显示区域
+        image_scroll_area = self.create_image_scroll_area()
+        ocr_layout.addWidget(image_scroll_area)
+
+        # 添加结果显示区域
+        results_group = self.create_results_group()
+        ocr_layout.addWidget(results_group)
+
+        return ocr_frame
+
+    def create_button_layout(self):
+        # 创建按钮布局
+        button_layout = QHBoxLayout()
+
+        # 添加粘贴图片按钮
+        self.paste_button = QPushButton('Paste Image')
+        self.paste_button.clicked.connect(self.paste_image)
+        button_layout.addWidget(self.paste_button)
+
+        # 添加执行OCR按钮
+        self.ocr_button = QPushButton('Perform OCR')
+        self.ocr_button.clicked.connect(self.perform_ocr)
+        button_layout.addWidget(self.ocr_button)
+
+        return button_layout
+
+    def create_translate_checkbox(self):
+        # 创建翻译复选框
+        translate_checkbox = QCheckBox('OCR后立刻翻译')
+        translate_checkbox.setStyleSheet(
+            """
+            QCheckBox {
+                color: #333333;
+                font-size: 14px;
+                padding: 5px;
+            }
+            QCheckBox::indicator {
+                color: #2196F3;
+                width: 18px;
+                height: 18px;
+            }
+        """
+        )
+        return translate_checkbox
+
+    def create_image_scroll_area(self):
+        # 创建图片显示区域
         self.image_label = QLabel()
         self.image_label.setAlignment(Qt.AlignCenter)
-        self.image_label.setStyleSheet("background-color: #f0f0f0; border: 1px solid #ddd;")
+        self.image_label.setStyleSheet("background-color: #f0f0f0; border: 10px solid #ddd;")
 
-        # 使用QScrollArea来使图片可滚动
         scroll_area = QScrollArea()
         scroll_area.setWidget(self.image_label)
         scroll_area.setWidgetResizable(True)
-        ocr_layout.addWidget(scroll_area)
+
+        return scroll_area
+
+    def create_results_group(self):
+        # 创建结果显示区域
+        results_group = QGroupBox("Results")
+        results_layout = QHBoxLayout(results_group)
+
+        # OCR结果显示
+        ocr_result_layout = self.create_ocr_result_layout()
+        results_layout.addLayout(ocr_result_layout)
+
+        # 翻译结果显示
+        translate_result_layout = self.create_translate_result_layout()
+        results_layout.addLayout(translate_result_layout)
+
+        return results_group
+
+    def create_ocr_result_layout(self):
+        # 创建OCR结果布局
+        ocr_result_layout = QVBoxLayout()
+        ocr_result_label = QLabel("OCR Result:")
+        ocr_result_layout.addWidget(ocr_result_label)
 
         self.result_text = QTextEdit()
         self.result_text.setPlaceholderText("OCR result will be displayed here...")
-        ocr_layout.addWidget(self.result_text)
+        ocr_result_layout.addWidget(self.result_text)
 
-        # 文本润色部分
-        polish_frame = QFrame()
-        polish_frame.setFrameShape(QFrame.StyledPanel)
-        polish_layout = QVBoxLayout(polish_frame)
+        return ocr_result_layout
 
-        polish_title = QLabel("Text Polish")
-        polish_title.setStyleSheet("font-size: 18px; font-weight: bold;")
-        polish_layout.addWidget(polish_title)
+    def create_translate_result_layout(self):
+        # 创建翻译结果布局
+        translate_result_layout = QVBoxLayout()
+        translate_result_label = QLabel("Translated Text:")
+        translate_result_layout.addWidget(translate_result_label)
 
-        self.polish_input = QTextEdit()
-        self.polish_input.setPlaceholderText("Enter text to polish...")
-        polish_layout.addWidget(self.polish_input)
+        self.translated_text = QTextEdit()
+        self.translated_text.setPlaceholderText("Translated text will appear here...")
+        self.translated_text.setReadOnly(True)
+        translate_result_layout.addWidget(self.translated_text)
 
-        self.polish_button = QPushButton('Polish Text')
-        self.polish_button.clicked.connect(self.polish_text)
-        polish_layout.addWidget(self.polish_button)
+        # 添加单独的翻译按钮
+        self.translate_button = QPushButton('翻译')
+        self.translate_button.clicked.connect(self.translate_only)
+        translate_result_layout.addWidget(self.translate_button)
 
-        self.polished_result = QTextEdit()
-        self.polished_result.setReadOnly(True)
-        self.polished_result.setPlaceholderText("Polished text will appear here...")
-        polish_layout.addWidget(self.polished_result)
+        return translate_result_layout
 
-        # 使用QSplitter来允许用户调整两个部分的大小
-        splitter = QSplitter(Qt.Horizontal)
-        splitter.addWidget(ocr_frame)
-        splitter.addWidget(polish_frame)
-        splitter.setSizes([600, 600])  # 调整初始大小
-
-        main_layout.addWidget(splitter)
-        central_widget.setLayout(main_layout)
-
-        self.image = None
-
+    def set_global_style(self):
         # 设置全局样式
         self.setStyleSheet(
             """
@@ -229,16 +329,16 @@ class DesktopOCRApp(QMainWindow):
             }
             QFrame {
                 background-color: #ffffff;
-                border-radius: 10px;
+                border-radius: 5px;
                 border: 1px solid #e0e0e0;
             }
             QPushButton {
                 background-color: #2196F3;
                 color: white;
                 border: none;
-                padding: 8px 16px;
-                border-radius: 4px;
-                font-size: 14px;
+                padding: 5px 10px;
+                border-radius: 3px;
+                font-size: 12px;
             }
             QPushButton:hover {
                 background-color: #1976D2;
@@ -247,12 +347,22 @@ class DesktopOCRApp(QMainWindow):
                 background-color: #ffffff;
                 color: #333333;
                 border: 1px solid #bdbdbd;
-                border-radius: 4px;
-                padding: 8px;
-                font-size: 14px;
+                border-radius: 3px;
+                padding: 5px;
+                font-size: 12px;
             }
             QLabel {
                 color: #333333;
+                font-size: 12px;
+            }
+            QCheckBox {
+                color: #333333;
+                font-size: 14px;
+                padding: 5px;
+            }
+            QCheckBox::indicator {
+                width: 18px;
+                height: 18px;
             }
         """
         )
@@ -286,39 +396,39 @@ class DesktopOCRApp(QMainWindow):
             return
 
         # Convert QImage to PIL Image
-        buffer = QPixmap.fromImage(self.image).toImage()
+        pil_image = self.convert_qimage_to_pil(self.image)
+
+        # Perform OCR
+        ocr_result = self.ocr_processor.perform_ocr(pil_image, ["English", "Chinese"])
+
+        # Display OCR results
+        text_lines = [line.text for line in ocr_result.text_lines]
+        ocr_text = "\n".join(text_lines)
+        self.result_text.setText(ocr_text)
+
+        # Translate if checkbox is checked
+        if self.translate_checkbox.isChecked():
+            self.translate_text()
+
+    def translate_text(self):
+        ocr_text = self.result_text.toPlainText()
+        if not ocr_text:
+            self.translated_text.setText("No text to translate.")
+            return
+
+        translated = self.translator.translate_text(ocr_text)
+        self.translated_text.setText(translated)
+
+    def translate_only(self):
+        self.translate_text()
+
+    def convert_qimage_to_pil(self, qimage: QImage) -> Image.Image:
+        buffer = QPixmap.fromImage(qimage).toImage()
         buffer = buffer.convertToFormat(QImage.Format_RGB888)
         width, height = buffer.width(), buffer.height()
         ptr = buffer.constBits()
         ptr.setsize(height * width * 3)
-        pil_image = Image.frombytes("RGB", (width, height), ptr, "raw", "RGB")
-
-        # Adjust image size
-        pil_image = adjust_image_size(pil_image)
-
-        # Perform OCR
-        _, ocr_result = ocr(
-            pil_image,
-            pil_image,
-            ["English", "Chinese"],
-            self.det_model,
-            self.det_processor,
-            self.rec_model,
-            self.rec_processor,
-        )
-
-        # Display results
-        text_lines = [line.text for line in ocr_result.text_lines]
-        self.result_text.setText("\n".join(text_lines))
-
-    def polish_text(self):
-        input_text = self.polish_input.toPlainText()
-        if not input_text:
-            self.polished_result.setText("Please enter some text to polish.")
-            return
-
-        polished_text = polish_text(input_text)
-        self.polished_result.setText(polished_text)
+        return Image.frombytes("RGB", (width, height), ptr, "raw", "RGB")
 
 
 def main():
