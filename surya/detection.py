@@ -1,10 +1,8 @@
 import contextlib
-import multiprocessing
-import threading
-from queue import Queue
-from typing import List, Tuple, Generator
 
 import torch
+from typing import List, Tuple, Generator
+
 import numpy as np
 from PIL import Image
 
@@ -128,22 +126,19 @@ def parallel_get_lines(preds, orig_sizes):
     return result
 
 
-
 def batch_text_detection(images: List, model, processor, batch_size=None) -> List[TextDetectionResult]:
     detection_generator = batch_detection(images, model, processor, batch_size=batch_size)
 
-    results = []
+    postprocessing_futures = []
     max_workers = min(settings.DETECTOR_POSTPROCESSING_CPU_WORKERS, len(images))
     parallelize = not settings.IN_STREAMLIT and len(images) >= settings.DETECTOR_MIN_PARALLEL_THRESH
 
-    if parallelize:
-        with ProcessPoolExecutor(max_workers=max_workers) as executor:
-            for preds, orig_sizes in detection_generator:
-                batch_results = list(executor.map(parallel_get_lines, preds, orig_sizes))
-                results.extend(batch_results)
-    else:
+    with ProcessPoolExecutor(
+            max_workers=max_workers,
+    ) if parallelize else contextlib.nullcontext() as executor:
+        func = executor.submit if parallelize else FakeParallel
         for preds, orig_sizes in detection_generator:
             for pred, orig_size in zip(preds, orig_sizes):
-                results.append(parallel_get_lines(pred, orig_size))
+                postprocessing_futures.append(func(parallel_get_lines, pred, orig_size))
 
-    return results
+    return [future.result() for future in postprocessing_futures]
