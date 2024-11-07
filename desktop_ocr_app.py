@@ -376,9 +376,7 @@ class DesktopOCRApp(QMainWindow):
             if not image.isNull():
                 self.image = image
                 self.display_image(image)
-                self.result_text.setText(
-                    "Image pasted from clipboard. Click 'Perform OCR' to process."
-                )
+                self.result_text.setText("Image pasted from clipboard. Click 'Perform OCR' to process.")
             else:
                 self.result_text.setText("Failed to paste image from clipboard.")
         else:
@@ -386,9 +384,7 @@ class DesktopOCRApp(QMainWindow):
 
     def display_image(self, image):
         pixmap = QPixmap.fromImage(image)
-        self.image_label.setPixmap(
-            pixmap.scaled(self.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        )
+        self.image_label.setPixmap(pixmap.scaled(self.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
 
     def perform_ocr(self):
         if self.image is None:
